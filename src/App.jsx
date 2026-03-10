@@ -467,11 +467,17 @@ function BadgesScreen({ badges, xp, onBack }) {
 
 export default function App() {
   const [screen, setScreen] = useState("home");
-  const [xp, setXP] = useState(0);
-  const [badges, setBadges] = useState([]);
+  const [xp, setXP] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("eh_xp")) || 0; } catch { return 0; }
+  });
+  const [badges, setBadges] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("eh_badges")) || []; } catch { return []; }
+  });
+  const [streak, setStreak] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("eh_streak")) || 0; } catch { return 0; }
+  });
   const [toast, setToast] = useState(null);
   const [xpBurst, setXpBurst] = useState(false);
-  const [streak] = useState(0);
   const grammarCount = useRef(0);
   const storyBadgeDone = useRef(false);
 
@@ -481,7 +487,9 @@ export default function App() {
     setBadges(prev => {
       if (prev.some(b => b.id === id)) return prev;
       setToast(badge);
-      return [...prev, badge];
+      const newBadges = [...prev, badge];
+      try { localStorage.setItem("eh_badges", JSON.stringify(newBadges)); } catch {}
+      return newBadges;
     });
   }
 
@@ -489,6 +497,7 @@ export default function App() {
     setXP(prev => {
       const newXp = prev + amount;
       if (getLevel(newXp) > getLevel(prev)) setTimeout(() => awardBadge("level_2"), 600);
+      try { localStorage.setItem("eh_xp", JSON.stringify(newXp)); } catch {}
       return newXp;
     });
     setXpBurst(true);
