@@ -93,7 +93,7 @@ function HomeScreen({ xp, badges, onNav, streak }) {
           ))}
         </div>
       </div>
-      <div style={{ padding: "0 20px", display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 14 }}>
+      <div style={{ padding: "0 20px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14 }}>
         {[
           { icon: "📖", label: "Story Writing", sub: "Build your composition", color: ["#ec4899","#f97316"], screen: "story" },
           { icon: "🎯", label: "Grammar Quest", sub: "Master English rules", color: ["#06b6d4","#3b82f6"], screen: "grammar" },
@@ -516,7 +516,7 @@ export default function App() {
         ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
       `}</style>
       {toast && <BadgeToast badge={toast} onDone={() => setToast(null)} />}
-      <div style={{ maxWidth: "100%", margin: "0 auto", minHeight: "100vh", background: "linear-gradient(180deg,#0f172a 0%,#1e1b4b 100%)" }}>
+      <div style={{ maxWidth: 1200, margin: "0 auto", minHeight: "100vh", background: "linear-gradient(180deg,#0f172a 0%,#1e1b4b 100%)" }}>
         <div style={{ position: "sticky", top: 0, zIndex: 50, background: "rgba(15,23,42,0.92)", backdropFilter: "blur(12px)", padding: "12px 20px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
           <XPBar xp={xp} showBurst={xpBurst} />
         </div>
