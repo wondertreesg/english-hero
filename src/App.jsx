@@ -81,7 +81,7 @@ function BadgeToast({ badge, onDone }) {
 function HomeScreen({ xp, badges, onNav, streak }) {
   return (
     <div style={{ paddingBottom: 30 }}>
-      <div style={{ background: "linear-gradient(135deg,#4338ca 0%,#7c3aed 50%,#a855f7 100%)", borderRadius: "0 0 30px 30px", padding: "40px 24px 60px", textAlign: "center", marginBottom: 28 }}>
+      <div style={{ background: "linear-gradient(135deg,#4338ca 0%,#7c3aed 50%,#a855f7 100%)", borderRadius: "0 0 30px 30px", padding: "30px 24px 40px", textAlign: "center", marginBottom: 28 }}>
         <div style={{ fontSize: 64, marginBottom: 6 }}>🦸</div>
         <h1 style={{ fontFamily: "'Fredoka One',cursive", color: "#fff", fontSize: 32, margin: "0 0 4px" }}>English Hero!</h1>
         <p style={{ color: "#c4b5fd", fontFamily: "'Nunito',sans-serif", fontSize: 15, margin: 0 }}>
@@ -93,7 +93,7 @@ function HomeScreen({ xp, badges, onNav, streak }) {
           ))}
         </div>
       </div>
-      <div style={{ padding: "0 20px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14 }}>
+      <div style={{ padding: "0 20px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
         {[
           { icon: "📖", label: "Story Writing", sub: "Build your composition", color: ["#ec4899","#f97316"], screen: "story" },
           { icon: "🎯", label: "Grammar Quest", sub: "Master English rules", color: ["#06b6d4","#3b82f6"], screen: "grammar" },
@@ -136,7 +136,7 @@ function StoryScreen({ onXP, onBack }) {
     setLoading(true);
     let parsed = null;
     try {
-      const res = await fetch("https://english-hero-api.wondertreesg.workers.dev", {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
