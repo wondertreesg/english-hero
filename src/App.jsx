@@ -481,6 +481,10 @@ export default function App() {
   const grammarCount = useRef(0);
   const storyBadgeDone = useRef(false);
 
+  useEffect(() => { try { localStorage.setItem("eh_xp", JSON.stringify(xp)); } catch {} }, [xp]);
+  useEffect(() => { try { localStorage.setItem("eh_badges", JSON.stringify(badges)); } catch {} }, [badges]);
+  useEffect(() => { try { localStorage.setItem("eh_streak", JSON.stringify(streak)); } catch {} }, [streak]);
+
   function awardBadge(id) {
     const badge = BADGES.find(b => b.id === id);
     if (!badge) return;
