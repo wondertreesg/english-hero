@@ -18,8 +18,12 @@ async function callAI(system, user, maxTokens = 3000) {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: maxTokens, system, messages: [{ role: "user", content: user }] })
   });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
-  return data.content.map(b => b.text || "").join("").trim();
+  if (data.error) throw new Error(data.error);
+  const text = data.content.map(b => b.text || "").join("").trim();
+  const cleaned = text.replace(/```json|```/g, "").trim();
+  return cleaned;
 }
 
 // ── cache helpers ─────────────────────────────────────────────────────────────
@@ -29,6 +33,7 @@ function useBank(cacheKey, seenKey, generateFn, minSize = 40) {
   const [idx, setIdx] = useState(0);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState(null);
   const genRef = useRef(false);
 
   function getSeen() { return ls.get(seenKey) || []; }
@@ -47,8 +52,13 @@ function useBank(cacheKey, seenKey, generateFn, minSize = 40) {
     setGenerating(true);
     try {
       const existing = current.slice(-15).map(q => q._id || q.question || q.weak).join(", ");
-      const newItems = await generateFn(existing);
-      if (newItems && newItems.length > 0) {
+      const raw = await generateFn(existing);
+      let newItems = raw;
+      if (typeof raw === "string") {
+        const cleaned = raw.replace(/```json|```/g, "").trim();
+        newItems = JSON.parse(cleaned);
+      }
+      if (newItems && Array.isArray(newItems) && newItems.length > 0) {
         const tagged = newItems.map((q, i) => ({ ...q, _id: `${cacheKey}_${Date.now()}_${i}` }));
         const newBank = [...current, ...tagged];
         ls.set(cacheKey, newBank.slice(-500));
@@ -57,7 +67,10 @@ function useBank(cacheKey, seenKey, generateFn, minSize = 40) {
         setGenerating(false);
         return newBank;
       }
-    } catch (e) {}
+    } catch (e) {
+      console.error("grow error:", e);
+      setError(e.message || "Unknown error");
+    }
     genRef.current = false;
     setGenerating(false);
     return current;
@@ -103,7 +116,7 @@ function useBank(cacheKey, seenKey, generateFn, minSize = 40) {
     if (nextIdx >= queue.length - 5) grow(cur);
   }
 
-  return { item: queue[idx], loading, generating, next, bankSize: bank.length };
+  return { item: queue[idx], loading, generating, next, bankSize: bank.length, error };
 }
 
 // ── BADGES ────────────────────────────────────────────────────────────────────
@@ -202,16 +215,28 @@ function HomeScreen({ xp, badges, onNav }) {
 }
 
 // ── StoryScreen ───────────────────────────────────────────────────────────────
+const STORIES_FALLBACK = [
+  { title: "The Camping Trip", prompt: "It was the first time Kai had ever slept under the stars. As he unzipped the tent, he froze — something was rustling in the bushes nearby...", genre: "Adventure", emoji: "🏕️" },
+  { title: "My Robot Friend", prompt: "The cardboard box on the doorstep had holes punched in it. Maya leaned closer and heard a faint beeping sound from inside...", genre: "Sci-Fi", emoji: "🤖" },
+  { title: "The Mysterious Circus", prompt: "The circus had appeared overnight on the empty field. Nobody had seen any trucks arrive. The posters read: One night only — you will NEVER forget.", genre: "Mystery", emoji: "🎪" },
+  { title: "A Strange New World", prompt: "When Sophie stepped through the mirror, she expected to see her bedroom reflected back. Instead, she found herself in a golden forest where the trees hummed softly...", genre: "Fantasy", emoji: "🌌" },
+  { title: "The Last Dragon", prompt: "Everyone said dragons were extinct. So when Mei found a glowing egg hidden under her grandmother's floorboards, she had no idea her life was about to change forever...", genre: "Fantasy", emoji: "🐉" },
+];
+
 async function generateStories(existing) {
-  const raw = await callAI(
-    `You create gripping story starters for Primary 4 students (age 10) in Singapore. Return ONLY a valid JSON array. Each item: title (string), prompt (2-3 exciting sentences ending with ...), genre (Adventure/Mystery/Fantasy/Sci-Fi/Horror/Friendship/Sports/Animal), emoji (one emoji). No markdown.`,
-    `Generate 8 fresh story starters. Do NOT repeat these: ${existing || "none"}. Start in the middle of the action. Use sensory details. End on a cliffhanger. Some set in Singapore or Asia. Return ONLY a JSON array.`
-  );
-  return JSON.parse(raw);
+  try {
+    const raw = await callAI(
+      `You create gripping story starters for Primary 4 students (age 10) in Singapore. Return ONLY a valid JSON array, no markdown. Each item: title (string), prompt (2-3 exciting sentences ending with ...), genre (Adventure/Mystery/Fantasy/Sci-Fi/Horror/Friendship/Sports/Animal), emoji (one emoji).`,
+      `Generate 5 fresh story starters. Do NOT repeat: ${existing || "none"}. Start in action. Use sensory details. End on cliffhanger. Some in Singapore. Return ONLY a JSON array.`
+    );
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+  } catch (e) { console.error("Stories gen failed:", e); }
+  return STORIES_FALLBACK;
 }
 
 function StoryScreen({ onXP, onBack }) {
-  const { item: stories, loading, generating, next: nextStories, bankSize } = useBank("eh_stories_v3", "eh_stories_seen_v3", generateStories, 8);
+  const { item: stories, loading, generating, next: nextStories, bankSize } = useBank("eh_stories_v3", "eh_stories_seen_v3", generateStories, 5);
   const [step, setStep] = useState("pick");
   const [chosen, setChosen] = useState(null);
   const [allStories, setAllStories] = useState([]);
@@ -346,17 +371,34 @@ const GRAMMAR_SKILLS = [
   "Neither...Nor", "So vs Such", "Wishes", "Future Perfect", "Correlative Conjunctions"
 ];
 
+const GRAMMAR_FALLBACK = [
+  { question: "She ___ to school every day by bus.", options: ["go", "goes", "going", "gone"], answer: "goes", explanation: "We use 'goes' with singular subjects like 'She'.", skill: "Subject-Verb Agreement", difficulty: 1 },
+  { question: "The children ___ playing when it started to rain.", options: ["is", "are", "was", "were"], answer: "were", explanation: "'Were' is used for plural subjects in past continuous.", skill: "Past Continuous Tense", difficulty: 1 },
+  { question: "I have not seen him ___ last Monday.", options: ["for", "since", "from", "at"], answer: "since", explanation: "'Since' is used with a specific point in time.", skill: "Since vs For", difficulty: 1 },
+  { question: "She is much ___ than her younger sister.", options: ["tall", "taller", "tallest", "more taller"], answer: "taller", explanation: "Use '-er' when comparing two people.", skill: "Comparatives", difficulty: 1 },
+  { question: "The cake ___ by my grandmother last night.", options: ["baked", "was baked", "is baked", "bakes"], answer: "was baked", explanation: "Passive voice in the past uses 'was + past participle'.", skill: "Passive Voice", difficulty: 2 },
+  { question: "He ___ his homework before he went out to play.", options: ["finish", "finishes", "finished", "had finished"], answer: "had finished", explanation: "'Had finished' shows the homework was done BEFORE he went out.", skill: "Past Perfect Tense", difficulty: 2 },
+  { question: "This is the ___ movie I have ever watched!", options: ["good", "better", "best", "most good"], answer: "best", explanation: "Use 'best' when comparing more than two things.", skill: "Superlatives", difficulty: 1 },
+  { question: "If I ___ a million dollars, I would travel the world.", options: ["have", "had", "has", "will have"], answer: "had", explanation: "Use 'had' in the if-clause for imaginary situations.", skill: "Conditional Sentences", difficulty: 3 },
+  { question: "I enjoy ___ football with my friends.", options: ["play", "plays", "played", "playing"], answer: "playing", explanation: "After 'enjoy', always use the -ing form.", skill: "Gerunds", difficulty: 1 },
+  { question: "Please pass me ___ umbrella. It is raining.", options: ["a", "an", "the", "some"], answer: "the", explanation: "Use 'the' when both speaker and listener know which umbrella.", skill: "Articles", difficulty: 1 },
+];
+
 async function generateGrammar(existing) {
   const skills = [...GRAMMAR_SKILLS].sort(() => Math.random() - 0.5).slice(0, 8).join(", ");
-  const raw = await callAI(
-    `You generate English grammar questions for Primary 4 students in Singapore (MOE syllabus). Return ONLY a valid JSON array. Each item: question (string, use ___ for blanks), options (array of exactly 4 strings — NO nested quotes inside strings, use simple words only), answer (exact match to one option), explanation (simple, for a 10-year-old), skill (string), difficulty (1, 2, or 3). IMPORTANT: never use quotation marks inside option strings.`,
-    `Generate 25 grammar questions for skills: ${skills}. Do NOT repeat these recent ones: ${existing || "none"}. Mix difficulty 1-3. Return ONLY a JSON array.`, 4000
-  );
-  return JSON.parse(raw);
+  try {
+    const raw = await callAI(
+      `You generate English grammar questions for Primary 4 students in Singapore (MOE syllabus). Return ONLY a valid JSON array, no markdown. Each item: question (string, use ___ for blanks), options (array of exactly 4 simple strings with NO quotation marks inside), answer (exact match to one option), explanation (simple, for a 10-year-old), skill (string), difficulty (1, 2, or 3).`,
+      `Generate 10 grammar questions for skills: ${skills}. Do NOT repeat: ${existing || "none"}. Mix difficulty 1-3. Return ONLY a JSON array.`, 2000
+    );
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+  } catch (e) { console.error("Grammar gen failed:", e); }
+  return GRAMMAR_FALLBACK;
 }
 
 function GrammarScreen({ onXP, onBack }) {
-  const { item: q, loading, generating, next, bankSize } = useBank("eh_grammar_v3", "eh_grammar_seen_v3", generateGrammar, 40);
+  const { item: q, loading, generating, next, bankSize } = useBank("eh_grammar_v3", "eh_grammar_seen_v3", generateGrammar, 10);
   const [selected, setSelected] = useState(null);
   const [answered, setAnswered] = useState(false);
   const [score, setScore] = useState(0);
@@ -364,7 +406,17 @@ function GrammarScreen({ onXP, onBack }) {
   const [total, setTotal] = useState(0);
   const grammarCount = useRef(0);
 
-  if (loading) return <LoadingScreen emoji="🎯" color="#06b6d4" message="Building question bank..." sub="Generating 40+ questions — only happens once!" onBack={onBack} />;
+  if (loading) return <LoadingScreen emoji="🎯" color="#06b6d4" message="Building question bank..." sub="Generating questions — only happens once!" onBack={onBack} />;
+  if (error) return (
+    <div style={{ padding: 20 }}>
+      <button onClick={onBack} style={backBtn}>← Back</button>
+      <div style={{ background: "rgba(239,68,68,0.1)", border: "1px solid #ef4444", borderRadius: 14, padding: 20, marginTop: 20 }}>
+        <div style={{ fontFamily: "'Fredoka One',cursive", color: "#f87171", fontSize: 18, marginBottom: 8 }}>⚠️ Connection Error</div>
+        <p style={{ fontFamily: "'Nunito',sans-serif", color: "#fca5a5", fontSize: 13, margin: "0 0 8px" }}>Error: {error}</p>
+        <p style={{ fontFamily: "'Nunito',sans-serif", color: "#94a3b8", fontSize: 12, margin: 0 }}>Check that your Cloudflare Worker is deployed and the API key is set.</p>
+      </div>
+    </div>
+  );
 
   function pick(opt) {
     if (answered || !q) return;
@@ -429,16 +481,33 @@ function GrammarScreen({ onXP, onBack }) {
 }
 
 // ── WordBoostScreen ───────────────────────────────────────────────────────────
+const WORDS_FALLBACK = [
+  { weak: "said", strong: ["whispered", "exclaimed", "announced", "muttered"], tip: "Show HOW someone spoke!" },
+  { weak: "walked", strong: ["trudged", "sprinted", "crept", "marched"], tip: "Show HOW someone moved!" },
+  { weak: "nice", strong: ["delightful", "magnificent", "charming", "splendid"], tip: "Nice is boring — upgrade it!" },
+  { weak: "scared", strong: ["terrified", "petrified", "horrified", "trembling"], tip: "Show the intensity of fear!" },
+  { weak: "happy", strong: ["overjoyed", "elated", "thrilled", "ecstatic"], tip: "Make the happiness vivid!" },
+  { weak: "sad", strong: ["heartbroken", "devastated", "forlorn", "crestfallen"], tip: "Show deep sadness!" },
+  { weak: "big", strong: ["enormous", "colossal", "towering", "massive"], tip: "How BIG exactly?" },
+  { weak: "angry", strong: ["furious", "enraged", "livid", "seething"], tip: "Show HOW angry they were!" },
+  { weak: "looked", strong: ["glanced", "stared", "gazed", "peered"], tip: "Show HOW they used their eyes!" },
+  { weak: "ran", strong: ["dashed", "bolted", "sprinted", "fled"], tip: "Why were they running?" },
+];
+
 async function generateWords(existing) {
-  const raw = await callAI(
-    `You generate vocabulary upgrade exercises for Primary 4 students in Singapore. Return ONLY a valid JSON array. Each item: weak (one boring overused word), strong (array of exactly 4 vivid alternatives for age 10), tip (fun encouragement under 10 words). No markdown.`,
-    `Generate 20 word upgrade exercises. Do NOT repeat these weak words: ${existing || "none"}. Use words students commonly overuse. Return ONLY a JSON array.`, 2000
-  );
-  return JSON.parse(raw);
+  try {
+    const raw = await callAI(
+      `You generate vocabulary upgrade exercises for Primary 4 students in Singapore. Return ONLY a valid JSON array, no markdown. Each item: weak (one boring overused word), strong (array of exactly 4 vivid alternatives for age 10), tip (fun encouragement under 10 words).`,
+      `Generate 10 word upgrade exercises. Do NOT repeat: ${existing || "none"}. Use words students commonly overuse. Return ONLY a JSON array.`, 1500
+    );
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+  } catch (e) { console.error("Words gen failed:", e); }
+  return WORDS_FALLBACK;
 }
 
 function WordBoostScreen({ onXP, onBack }) {
-  const { item: w, loading, generating, next, bankSize } = useBank("eh_words_v3", "eh_words_seen_v3", generateWords, 30);
+  const { item: w, loading, generating, next, bankSize } = useBank("eh_words_v3", "eh_words_seen_v3", generateWords, 10);
   const [chosen, setChosen] = useState(null);
   const [collected, setCollected] = useState([]);
 
