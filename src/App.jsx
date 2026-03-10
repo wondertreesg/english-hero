@@ -383,41 +383,66 @@ function StoryScreen({ onXP, onBack }) {
 }
 
 function GrammarScreen({ onXP, onBack }) {
+  const CACHE_KEY = "eh_grammar_bank";
+  const SEEN_KEY = "eh_grammar_seen";
+  const MIN_QUESTIONS = 50;
+
   const SKILLS = [
     "Subject-Verb Agreement", "Simple Past Tense", "Past Continuous Tense",
     "Present Perfect Tense", "Past Perfect Tense", "Future Tense",
     "Comparatives", "Superlatives", "Articles (a, an, the)",
-    "Prepositions", "Modal Verbs (must, should, can, could, will, would)",
-    "Passive Voice", "Reported Speech", "Conditional Sentences",
-    "Since vs For", "Punctuation in Speech", "Conjunctions",
-    "Gerunds and Infinitives", "Determiners", "Adverbs"
+    "Prepositions", "Modal Verbs", "Passive Voice", "Reported Speech",
+    "Conditional Sentences", "Since vs For", "Punctuation in Speech",
+    "Conjunctions", "Gerunds and Infinitives", "Adverbs", "Determiners",
+    "Neither...Nor Agreement", "So vs Such", "Wishes", "Future Perfect Tense",
+    "Correlative Conjunctions", "Comparatives vs Superlatives"
   ];
 
-  const FALLBACK_QUESTIONS = [
+  const FALLBACK = [
     { question: "She ___ to school every day by bus.", options: ["go", "goes", "going", "gone"], answer: "goes", explanation: "We use 'goes' with singular subjects like 'She'.", skill: "Subject-Verb Agreement", difficulty: 1 },
     { question: "The children ___ playing when it started to rain.", options: ["is", "are", "was", "were"], answer: "were", explanation: "'Were' is used for plural subjects in past continuous.", skill: "Past Continuous Tense", difficulty: 1 },
     { question: "I have not seen him ___ last Monday.", options: ["for", "since", "from", "at"], answer: "since", explanation: "'Since' is used with a specific point in time.", skill: "Since vs For", difficulty: 1 },
-    { question: "She is much ___ than her younger sister.", options: ["tall", "taller", "tallest", "more taller"], answer: "taller", explanation: "Use '-er' when comparing two people.", skill: "Comparatives", difficulty: 1 },
-    { question: "The cake ___ by my grandmother last night.", options: ["baked", "was baked", "is baked", "bakes"], answer: "was baked", explanation: "Passive voice in the past uses 'was + past participle'.", skill: "Passive Voice", difficulty: 2 },
   ];
 
-  const [questions, setQuestions] = useState(FALLBACK_QUESTIONS);
-  const [idx, setIdx] = useState(0);
+  function loadCache() {
+    try { return JSON.parse(localStorage.getItem(CACHE_KEY)) || []; } catch { return []; }
+  }
+  function saveCache(q) {
+    try { localStorage.setItem(CACHE_KEY, JSON.stringify(q)); } catch {}
+  }
+  function loadSeen() {
+    try { return JSON.parse(localStorage.getItem(SEEN_KEY)) || []; } catch { return []; }
+  }
+  function saveSeen(s) {
+    try { localStorage.setItem(SEEN_KEY, JSON.stringify(s.slice(-200))); } catch {}
+  }
+
+  const [bank, setBank] = useState(() => loadCache());
+  const [queue, setQueue] = useState([]);
+  const [qIdx, setQIdx] = useState(0);
   const [selected, setSelected] = useState(null);
   const [answered, setAnswered] = useState(false);
   const [score, setScore] = useState(0);
   const [streak, setStreak] = useState(0);
   const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [loadingScreen, setLoadingScreen] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [bankSize, setBankSize] = useState(() => loadCache().length);
 
-  const q = questions[idx % questions.length];
-  const diffStars = q ? "★".repeat(q.difficulty) + "☆".repeat(3 - q.difficulty) : "";
+  const q = queue[qIdx];
 
-  async function generateQuestions(existingCount = 0) {
-    if (generating) return;
+  function buildQueue(questionBank) {
+    const seen = loadSeen();
+    const unseen = questionBank.filter(q => !seen.includes(q.question));
+    const pool = unseen.length >= 10 ? unseen : questionBank;
+    return [...pool].sort(() => Math.random() - 0.5);
+  }
+
+  async function generateBatch(currentBank) {
+    if (generating) return currentBank;
     setGenerating(true);
-    const usedSkills = SKILLS.sort(() => Math.random() - 0.5).slice(0, 10).join(", ");
+    const usedSkills = [...SKILLS].sort(() => Math.random() - 0.5).slice(0, 8).join(", ");
+    const existingQs = currentBank.slice(-10).map(q => q.question).join("; ");
     try {
       const res = await fetch("https://english-hero-api.wondertreesg.workers.dev", {
         method: "POST",
@@ -425,29 +450,54 @@ function GrammarScreen({ onXP, onBack }) {
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
           max_tokens: 4000,
-          system: `You are an English grammar question generator for Primary 4 students in Singapore. Generate grammar questions aligned with the Singapore MOE syllabus. Respond with ONLY a valid JSON array, no markdown, no explanation. Each question must have: question (string with ___ for blanks OR a "Which is correct?" question), options (array of exactly 4 strings), answer (exact string matching one option), explanation (clear simple explanation for a 10-year-old), skill (grammar topic), difficulty (1, 2, or 3).`,
-          messages: [{ role: "user", content: `Generate 20 varied grammar questions covering these skills: ${usedSkills}. Mix difficulty levels. Make questions realistic and interesting. Return ONLY a JSON array.` }]
+          system: `You are an English grammar question generator for Primary 4 students in Singapore (MOE syllabus). Return ONLY a valid JSON array. Each question: question (string), options (array of 4 strings), answer (exact match to one option), explanation (simple, for a 10-year-old), skill (topic name), difficulty (1, 2, or 3). Make every question unique and different from any previously seen questions.`,
+          messages: [{ role: "user", content: `Generate 25 grammar questions for skills: ${usedSkills}. Do NOT repeat these recent questions: ${existingQs}. Mix difficulty. Make sentences realistic and varied. Return ONLY a JSON array.` }]
         })
       });
       const data = await res.json();
       const raw = data.content.map(b => b.text || "").join("").trim();
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        const shuffled = parsed.sort(() => Math.random() - 0.5);
-        setQuestions(prev => existingCount === 0 ? shuffled : [...prev, ...shuffled]);
-        if (existingCount === 0) setIdx(0);
+        const newBank = [...currentBank, ...parsed];
+        saveCache(newBank);
+        setBank(newBank);
+        setBankSize(newBank.length);
+        setGenerating(false);
+        return newBank;
       }
-    } catch (e) {
-      if (existingCount === 0) setQuestions(FALLBACK_QUESTIONS);
-    }
+    } catch (e) {}
     setGenerating(false);
-    setLoading(false);
+    return currentBank;
   }
 
-  useEffect(() => { generateQuestions(0); }, []);
+  useEffect(() => {
+    async function init() {
+      let currentBank = loadCache();
+      if (currentBank.length < MIN_QUESTIONS) {
+        // Generate multiple batches upfront
+        setLoadingScreen(true);
+        currentBank = await generateBatch(currentBank);
+        if (currentBank.length < MIN_QUESTIONS) {
+          currentBank = await generateBatch(currentBank);
+        }
+      }
+      if (currentBank.length === 0) currentBank = FALLBACK;
+      const q = buildQueue(currentBank);
+      setQueue(q);
+      setQIdx(0);
+      setLoadingScreen(false);
+      // Keep generating in background until we have 100+
+      if (currentBank.length < 100) {
+        generateBatch(currentBank).then(newBank => {
+          if (newBank.length > currentBank.length) setBankSize(newBank.length);
+        });
+      }
+    }
+    init();
+  }, []);
 
   function pick(opt) {
-    if (answered) return;
+    if (answered || !q) return;
     setSelected(opt);
     setAnswered(true);
     const correct = opt === q.answer;
@@ -461,25 +511,37 @@ function GrammarScreen({ onXP, onBack }) {
       onXP(2, null);
     }
     setTotal(t => t + 1);
-    // Generate more questions when running low
-    if (idx >= questions.length - 5) {
-      generateQuestions(questions.length);
+    // Mark as seen
+    const seen = loadSeen();
+    saveSeen([...seen, q.question]);
+    // Generate more in background when running low
+    const currentBank = loadCache();
+    if (qIdx >= queue.length - 8) {
+      generateBatch(currentBank);
     }
   }
 
   function next() {
-    setIdx(i => i + 1);
+    const nextIdx = qIdx + 1;
+    if (nextIdx >= queue.length) {
+      const currentBank = loadCache();
+      const newQ = buildQueue(currentBank);
+      setQueue(newQ);
+      setQIdx(0);
+    } else {
+      setQIdx(nextIdx);
+    }
     setSelected(null);
     setAnswered(false);
   }
 
-  if (loading) return (
+  if (loadingScreen) return (
     <div style={{ padding: 20, textAlign: "center" }}>
       <button onClick={onBack} style={backBtn}>← Back</button>
       <div style={{ marginTop: 60 }}>
         <div style={{ fontSize: 48, marginBottom: 16, animation: "pop 1s infinite" }}>🎯</div>
-        <div style={{ fontFamily: "'Fredoka One',cursive", color: "#06b6d4", fontSize: 22 }}>Loading Questions...</div>
-        <div style={{ fontFamily: "'Nunito',sans-serif", color: "#94a3b8", fontSize: 14, marginTop: 8 }}>Generating fresh grammar questions for you!</div>
+        <div style={{ fontFamily: "'Fredoka One',cursive", color: "#06b6d4", fontSize: 22 }}>Building your question bank...</div>
+        <div style={{ fontFamily: "'Nunito',sans-serif", color: "#94a3b8", fontSize: 14, marginTop: 8 }}>This only happens once! Future visits will be instant.</div>
       </div>
     </div>
   );
@@ -491,13 +553,14 @@ function GrammarScreen({ onXP, onBack }) {
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
         <div style={pill("#06b6d4")}>✅ {score}/{total} Correct</div>
         <div style={pill("#f59e0b")}>🔥 Streak: {streak}</div>
-        <div style={pill("#a855f7")}>Q{idx + 1} of ∞</div>
-        {q && <span style={{ fontFamily: "'Nunito',sans-serif", color: "#fbbf24", fontSize: 14, alignSelf: "center" }}>{diffStars}</span>}
+        <div style={pill("#a855f7")}>📚 {bankSize} questions saved</div>
       </div>
       {q && (
         <>
           <div style={{ background: "rgba(6,182,212,0.08)", border: "2px solid rgba(6,182,212,0.25)", borderRadius: 16, padding: 16, marginBottom: 12 }}>
-            <div style={{ fontFamily: "'Nunito',sans-serif", color: "#67e8f9", fontSize: 11, fontWeight: 800, textTransform: "uppercase", marginBottom: 6 }}>Skill: {q.skill}</div>
+            <div style={{ fontFamily: "'Nunito',sans-serif", color: "#67e8f9", fontSize: 11, fontWeight: 800, textTransform: "uppercase", marginBottom: 6 }}>
+              Skill: {q.skill} · {"★".repeat(q.difficulty || 1)}{"☆".repeat(3 - (q.difficulty || 1))}
+            </div>
             <p style={{ fontFamily: "'Nunito',sans-serif", color: "#e2e8f0", fontSize: 16, margin: 0, lineHeight: 1.6, fontWeight: 700 }}>{q.question}</p>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
@@ -528,7 +591,7 @@ function GrammarScreen({ onXP, onBack }) {
                 <p style={{ fontFamily: "'Nunito',sans-serif", color: "#cbd5e1", fontSize: 13, margin: 0 }}>{q.explanation}</p>
               </div>
               <button onClick={next} style={{ ...actionBtn("#06b6d4"), width: "100%", padding: 16, fontSize: 17 }}>
-                {generating ? "⏳ Loading more..." : "Next Question →"}
+                {generating ? "⏳ Generating more in background..." : "Next Question →"}
               </button>
             </div>
           )}
@@ -539,24 +602,44 @@ function GrammarScreen({ onXP, onBack }) {
 }
 
 function WordBoostScreen({ onXP, onBack }) {
+  const CACHE_KEY = "eh_word_bank";
+  const SEEN_KEY = "eh_word_seen";
+
   const FALLBACK = [
-    { weak: "said", strong: ["whispered", "exclaimed", "announced", "muttered"], tip: "Instead of 'said', use a more expressive word!" },
+    { weak: "said", strong: ["whispered", "exclaimed", "announced", "muttered"], tip: "Show HOW someone spoke!" },
     { weak: "walked", strong: ["trudged", "sprinted", "crept", "marched"], tip: "Show HOW someone moved!" },
     { weak: "nice", strong: ["delightful", "magnificent", "charming", "splendid"], tip: "'Nice' is boring — upgrade it!" },
     { weak: "scared", strong: ["terrified", "petrified", "horrified", "trembling"], tip: "Show the intensity of fear!" },
     { weak: "happy", strong: ["overjoyed", "elated", "thrilled", "ecstatic"], tip: "Make the happiness vivid!" },
   ];
 
-  const [words, setWords] = useState(FALLBACK);
-  const [idx, setIdx] = useState(0);
+  function loadCache() { try { return JSON.parse(localStorage.getItem(CACHE_KEY)) || []; } catch { return []; } }
+  function saveCache(w) { try { localStorage.setItem(CACHE_KEY, JSON.stringify(w)); } catch {} }
+  function loadSeen() { try { return JSON.parse(localStorage.getItem(SEEN_KEY)) || []; } catch { return []; } }
+  function saveSeen(s) { try { localStorage.setItem(SEEN_KEY, JSON.stringify(s.slice(-100))); } catch {} }
+
+  const [bank, setBank] = useState(() => loadCache());
+  const [queue, setQueue] = useState([]);
+  const [qIdx, setQIdx] = useState(0);
   const [chosen, setChosen] = useState(null);
   const [collected, setCollected] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loadingScreen, setLoadingScreen] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [bankSize, setBankSize] = useState(() => loadCache().length);
 
-  async function generateWords(existingCount = 0) {
-    if (generating) return;
+  const w = queue[qIdx];
+
+  function buildQueue(wordBank) {
+    const seen = loadSeen();
+    const unseen = wordBank.filter(w => !seen.includes(w.weak));
+    const pool = unseen.length >= 5 ? unseen : wordBank;
+    return [...pool].sort(() => Math.random() - 0.5);
+  }
+
+  async function generateBatch(currentBank) {
+    if (generating) return currentBank;
     setGenerating(true);
+    const existing = currentBank.map(w => w.weak).join(", ");
     try {
       const res = await fetch("https://english-hero-api.wondertreesg.workers.dev", {
         method: "POST",
@@ -564,50 +647,73 @@ function WordBoostScreen({ onXP, onBack }) {
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
           max_tokens: 2000,
-          system: `You generate vocabulary exercises for Primary 4 students in Singapore. Return ONLY a valid JSON array, no markdown. Each item: weak (a boring overused word), strong (array of exactly 4 vivid alternatives), tip (short fun encouragement, max 10 words).`,
-          messages: [{ role: "user", content: `Generate 15 word upgrade exercises. Use weak words that primary school students commonly overuse like: said, walked, nice, good, bad, big, small, fast, slow, old, new, happy, sad, angry, tired, looked, ran, ate, thought, felt, beautiful, ugly, loud, quiet, strange, funny, dark, bright. Make the strong alternatives vivid and age-appropriate. Return ONLY a JSON array.` }]
+          system: `You generate vocabulary upgrade exercises for Primary 4 students in Singapore. Return ONLY a valid JSON array. Each item: weak (boring overused word), strong (array of exactly 4 vivid alternatives appropriate for age 10), tip (fun short tip under 10 words).`,
+          messages: [{ role: "user", content: `Generate 20 word upgrade exercises. Do NOT repeat these weak words already covered: ${existing || "none"}. Use common overused words from student writing. Return ONLY a JSON array.` }]
         })
       });
       const data = await res.json();
       const raw = data.content.map(b => b.text || "").join("").trim();
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        const shuffled = parsed.sort(() => Math.random() - 0.5);
-        setWords(prev => existingCount === 0 ? shuffled : [...prev, ...shuffled]);
-        if (existingCount === 0) setIdx(0);
+        const newBank = [...currentBank, ...parsed];
+        saveCache(newBank);
+        setBank(newBank);
+        setBankSize(newBank.length);
+        setGenerating(false);
+        return newBank;
       }
-    } catch (e) {
-      if (existingCount === 0) setWords(FALLBACK);
-    }
+    } catch (e) {}
     setGenerating(false);
-    setLoading(false);
+    return currentBank;
   }
 
-  useEffect(() => { generateWords(0); }, []);
-
-  const w = words[idx % words.length];
+  useEffect(() => {
+    async function init() {
+      let currentBank = loadCache();
+      if (currentBank.length < 30) {
+        setLoadingScreen(true);
+        currentBank = await generateBatch(currentBank);
+        if (currentBank.length < 30) currentBank = await generateBatch(currentBank);
+      }
+      if (currentBank.length === 0) currentBank = FALLBACK;
+      setQueue(buildQueue(currentBank));
+      setQIdx(0);
+      setLoadingScreen(false);
+      if (currentBank.length < 80) generateBatch(currentBank);
+    }
+    init();
+  }, []);
 
   function pick(word) {
-    if (chosen) return;
+    if (chosen || !w) return;
     setChosen(word);
     const nc = [...collected, word];
     setCollected(nc);
     onXP(10, nc.length >= 5 ? "word_booster" : null);
-    if (idx >= words.length - 3) generateWords(words.length);
+    const seen = loadSeen();
+    saveSeen([...seen, w.weak]);
+    const currentBank = loadCache();
+    if (qIdx >= queue.length - 4) generateBatch(currentBank);
   }
 
   function next() {
     setChosen(null);
-    setIdx(i => i + 1);
+    const nextIdx = qIdx + 1;
+    if (nextIdx >= queue.length) {
+      setQueue(buildQueue(loadCache()));
+      setQIdx(0);
+    } else {
+      setQIdx(nextIdx);
+    }
   }
 
-  if (loading) return (
+  if (loadingScreen) return (
     <div style={{ padding: 20, textAlign: "center" }}>
       <button onClick={onBack} style={backBtn}>← Back</button>
       <div style={{ marginTop: 60 }}>
         <div style={{ fontSize: 48, marginBottom: 16, animation: "pop 1s infinite" }}>💡</div>
-        <div style={{ fontFamily: "'Fredoka One',cursive", color: "#10b981", fontSize: 22 }}>Loading Words...</div>
-        <div style={{ fontFamily: "'Nunito',sans-serif", color: "#94a3b8", fontSize: 14, marginTop: 8 }}>Generating fresh vocabulary exercises!</div>
+        <div style={{ fontFamily: "'Fredoka One',cursive", color: "#10b981", fontSize: 22 }}>Building word bank...</div>
+        <div style={{ fontFamily: "'Nunito',sans-serif", color: "#94a3b8", fontSize: 14, marginTop: 8 }}>This only happens once! Future visits will be instant.</div>
       </div>
     </div>
   );
@@ -616,10 +722,11 @@ function WordBoostScreen({ onXP, onBack }) {
     <div style={{ padding: 20 }}>
       <button onClick={onBack} style={backBtn}>← Back</button>
       <h2 style={{ fontFamily: "'Fredoka One',cursive", color: "#10b981", fontSize: 24, margin: "0 0 6px" }}>Word Power</h2>
-      <p style={{ fontFamily: "'Nunito',sans-serif", color: "#94a3b8", fontSize: 14, margin: "0 0 18px" }}>Swap boring words for exciting ones!</p>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
-        <div style={pill("#10b981")}>Word #{idx + 1}</div>
+      <p style={{ fontFamily: "'Nunito',sans-serif", color: "#94a3b8", fontSize: 14, margin: "0 0 12px" }}>Swap boring words for exciting ones!</p>
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+        <div style={pill("#10b981")}>Word #{qIdx + 1}</div>
         <div style={pill("#a855f7")}>🌟 {collected.length} collected</div>
+        <div style={pill("#06b6d4")}>📚 {bankSize} words saved</div>
       </div>
       {w && (
         <>
@@ -646,21 +753,21 @@ function WordBoostScreen({ onXP, onBack }) {
                 <p style={{ fontFamily: "'Nunito',sans-serif", color: "#34d399", fontSize: 13, margin: 0 }}>🌟 <strong>"{chosen}"</strong> is a great choice! Try using it in your next composition.</p>
               </div>
               <button onClick={next} style={{ ...actionBtn("#10b981"), width: "100%", padding: 14 }}>
-                {generating ? "⏳ Loading more..." : "Next Word →"}
+                {generating ? "⏳ Saving more words..." : "Next Word →"}
               </button>
             </div>
           )}
+          {collected.length > 0 && (
+            <div style={{ marginTop: 20, background: "rgba(168,85,247,0.08)", border: "1px solid rgba(168,85,247,0.2)", borderRadius: 14, padding: 14 }}>
+              <div style={{ fontFamily: "'Fredoka One',cursive", color: "#a855f7", fontSize: 14, marginBottom: 8 }}>Your Word Collection</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {collected.map((word, i) => (
+                  <span key={i} style={{ background: "rgba(168,85,247,0.2)", border: "1px solid rgba(168,85,247,0.4)", borderRadius: 20, padding: "3px 10px", fontFamily: "'Nunito',sans-serif", color: "#c4b5fd", fontSize: 12, fontWeight: 700 }}>{word}</span>
+                ))}
+              </div>
+            </div>
+          )}
         </>
-      )}
-      {collected.length > 0 && (
-        <div style={{ marginTop: 20, background: "rgba(168,85,247,0.08)", border: "1px solid rgba(168,85,247,0.2)", borderRadius: 14, padding: 14 }}>
-          <div style={{ fontFamily: "'Fredoka One',cursive", color: "#a855f7", fontSize: 14, marginBottom: 8 }}>Your Word Collection</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {collected.map((word, i) => (
-              <span key={i} style={{ background: "rgba(168,85,247,0.2)", border: "1px solid rgba(168,85,247,0.4)", borderRadius: 20, padding: "3px 10px", fontFamily: "'Nunito',sans-serif", color: "#c4b5fd", fontSize: 12, fontWeight: 700 }}>{word}</span>
-            ))}
-          </div>
-        </div>
       )}
     </div>
   );
