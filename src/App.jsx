@@ -516,7 +516,7 @@ export default function App() {
         ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
       `}</style>
       {toast && <BadgeToast badge={toast} onDone={() => setToast(null)} />}
-      <div style={{ maxWidth: 480, margin: "0 auto", minHeight: "100vh", background: "linear-gradient(180deg,#0f172a 0%,#1e1b4b 100%)" }}>
+      <div style={{ maxWidth: "100%", margin: "0 auto", minHeight: "100vh", background: "linear-gradient(180deg,#0f172a 0%,#1e1b4b 100%)" }}>
         <div style={{ position: "sticky", top: 0, zIndex: 50, background: "rgba(15,23,42,0.92)", backdropFilter: "blur(12px)", padding: "12px 20px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
           <XPBar xp={xp} showBurst={xpBurst} />
         </div>
