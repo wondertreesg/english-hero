@@ -27,7 +27,7 @@ function useBank(cacheKey, seenKey, generateFn, minSize = 40) {
   const [bank, setBank] = useState(() => ls.get(cacheKey) || []);
   const [queue, setQueue] = useState([]);
   const [idx, setIdx] = useState(0);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const genRef = useRef(false);
 
@@ -66,16 +66,25 @@ function useBank(cacheKey, seenKey, generateFn, minSize = 40) {
   useEffect(() => {
     async function init() {
       let b = ls.get(cacheKey) || [];
-      if (b.length < minSize) {
+      if (b.length >= minSize) {
+        // Already have enough - show immediately
+        const q = buildQueue(b);
+        setQueue(q);
+        setIdx(0);
+        setLoading(false);
+        // Grow in background
+        if (b.length < 100) grow(b);
+      } else {
+        // Need to generate first
         setLoading(true);
         b = await grow(b);
         if (b.length < minSize) b = await grow(b);
+        if (b.length === 0) b = [];
+        const q = buildQueue(b);
+        setQueue(q);
+        setIdx(0);
         setLoading(false);
       }
-      const q = buildQueue(b);
-      setQueue(q);
-      setIdx(0);
-      if (b.length < 100) grow(b);
     }
     init();
   }, []);
