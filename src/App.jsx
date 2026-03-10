@@ -136,7 +136,7 @@ function StoryScreen({ onXP, onBack }) {
     setLoading(true);
     let parsed = null;
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const res = await fetch("https://english-hero-api.wondertreesg.workers.dev", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
