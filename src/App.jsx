@@ -81,7 +81,7 @@ function BadgeToast({ badge, onDone }) {
 function HomeScreen({ xp, badges, onNav, streak }) {
   return (
     <div style={{ paddingBottom: 30 }}>
-      <div style={{ background: "linear-gradient(135deg,#4338ca 0%,#7c3aed 50%,#a855f7 100%)", borderRadius: "0 0 30px 30px", padding: "30px 24px 40px", textAlign: "center", marginBottom: 28 }}>
+      <div style={{ background: "linear-gradient(135deg,#4338ca 0%,#7c3aed 50%,#a855f7 100%)", borderRadius: "0 0 30px 30px", padding: "40px 24px 60px", textAlign: "center", marginBottom: 28 }}>
         <div style={{ fontSize: 64, marginBottom: 6 }}>🦸</div>
         <h1 style={{ fontFamily: "'Fredoka One',cursive", color: "#fff", fontSize: 32, margin: "0 0 4px" }}>English Hero!</h1>
         <p style={{ color: "#c4b5fd", fontFamily: "'Nunito',sans-serif", fontSize: 15, margin: 0 }}>
@@ -93,7 +93,7 @@ function HomeScreen({ xp, badges, onNav, streak }) {
           ))}
         </div>
       </div>
-      <div style={{ padding: "0 20px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+      <div className="card-grid">
         {[
           { icon: "📖", label: "Story Writing", sub: "Build your composition", color: ["#ec4899","#f97316"], screen: "story" },
           { icon: "🎯", label: "Grammar Quest", sub: "Master English rules", color: ["#06b6d4","#3b82f6"], screen: "grammar" },
@@ -447,7 +447,7 @@ function BadgesScreen({ badges, xp, onBack }) {
       <button onClick={onBack} style={backBtn}>← Back</button>
       <h2 style={{ fontFamily: "'Fredoka One',cursive", color: "#f59e0b", fontSize: 24, margin: "0 0 6px" }}>My Badges</h2>
       <p style={{ fontFamily: "'Nunito',sans-serif", color: "#94a3b8", fontSize: 14, margin: "0 0 18px" }}>Earn badges by practising every day!</p>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }}>
         {BADGES.map(b => {
           const earned = badges.some(e => e.id === b.id);
           return (
@@ -513,10 +513,10 @@ export default function App() {
         @keyframes pop { 0%{transform:scale(0.5);opacity:0} 70%{transform:scale(1.2)} 100%{transform:scale(1);opacity:1} }
         @keyframes slideIn { from{transform:translateX(100px);opacity:0} to{transform:translateX(0);opacity:1} }
         ::-webkit-scrollbar { width: 4px; }
-        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; } .card-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; padding: 0 20px; } @media (max-width: 768px) { .card-grid { grid-template-columns: repeat(2, 1fr); } }
       `}</style>
       {toast && <BadgeToast badge={toast} onDone={() => setToast(null)} />}
-      <div style={{ maxWidth: 1200, margin: "0 auto", minHeight: "100vh", background: "linear-gradient(180deg,#0f172a 0%,#1e1b4b 100%)" }}>
+      <div style={{ width: "100%", minHeight: "100vh", background: "linear-gradient(180deg,#0f172a 0%,#1e1b4b 100%)" }}>
         <div style={{ position: "sticky", top: 0, zIndex: 50, background: "rgba(15,23,42,0.92)", backdropFilter: "blur(12px)", padding: "12px 20px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
           <XPBar xp={xp} showBurst={xpBurst} />
         </div>
